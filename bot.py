@@ -50,6 +50,8 @@ GEMINI_MODEL = env("GEMINI_MODEL", "gemini-3.8-flash")
 GEMINI_FALLBACK_MODEL = "gemini-flash-latest"
 GROQ_API_KEY = env("GROQ_API_KEY")
 GROQ_MODEL = env("GROQ_MODEL", "openai/gpt-oss-120b")
+# OpenAI-compatible endpoint for the ChatGPT seat (Groq by default; e.g. OpenRouter: https://openrouter.ai/api/v1/chat/completions with model openai/gpt-oss-120b:free)
+CHATGPT_API_URL = env("CHATGPT_API_URL", "https://api.groq.com/openai/v1/chat/completions")
 GROK_FORWARD_URL = env("GROK_FORWARD_URL")
 PUBLIC_URL = (env("PUBLIC_URL") or env("RENDER_EXTERNAL_URL")).rstrip("/")
 DATA_DIR = env("DATA_DIR", "/tmp/trio")
@@ -185,6 +187,8 @@ def tg(seat, method, payload=None):
         return {"ok": False, "description": type(e).__name__}
     if not data.get("ok"):
         log.warning("telegram %s %s error: %s", seat, method, data.get("description"))
+    elif method == "sendMessage":
+        log.info("telegram %s sendMessage ok (msg %s)", seat, (data.get("result") or {}).get("message_id"))
     return data
 
 
@@ -262,7 +266,7 @@ def ask_groq(chat_id, chat_type, text):
     if not GROQ_API_KEY:
         return "ChatGPT seat isn't set up yet (GROQ_API_KEY missing)."
     r = requests.post(
-        "https://api.groq.com/openai/v1/chat/completions",
+        CHATGPT_API_URL,
         headers={"Authorization": f"Bearer {GROQ_API_KEY}"},
         json={
             "model": GROQ_MODEL,
@@ -285,6 +289,7 @@ ASK = {"gemini": ask_gemini, "chatgpt": ask_groq}
 
 def answer_with(seat, msg, text):
     chat_id = msg["chat"]["id"]
+    log.info("asking %s", seat)
     try:
         reply = ASK[seat](chat_id, msg["chat"].get("type"), text)
     except RateLimited:
@@ -292,6 +297,7 @@ def answer_with(seat, msg, text):
     except Exception as e:  # network errors, 5xx, bad JSON
         log.warning("%s failed: %s", seat, type(e).__name__)
         reply = f"{SEAT_LABEL[seat]} hit an error ({type(e).__name__}). Try again shortly."
+    log.info("%s answered (%d chars), sending", seat, len(reply or ""))
     send(seat, chat_id, reply, reply_to=msg.get("message_id"))
     add_transcript(chat_id, SEAT_LABEL[seat], reply)
 
@@ -375,6 +381,7 @@ def handle_update(seat, update):
     if not sender or is_bot_sender(sender) or chat_id is None:
         return
     uid = sender.get("id")
+    log.info("update seat=%s chat_type=%s owner_match=%s has_text=%s", seat, chat_type, uid == OWNER_ID, bool(text))
 
     # First-run lock: the first private message claims the owner seat.
     if OWNER_ID is None:
@@ -476,6 +483,7 @@ def webhook(seat):
     uid = update.get("update_id")
     if uid is not None and not seen_updates.add((seat, uid)):
         return "ok", 200
+    log.info("webhook %s update %s queued", seat, uid)
     threading.Thread(target=_safe_handle, args=(seat, update), daemon=True).start()
     return "ok", 200
 
