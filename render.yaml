@@ -1,0 +1,27 @@
+services:
+  - type: web
+    name: trio-bot
+    runtime: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn bot:app --workers 1 --threads 8 --timeout 120 --bind 0.0.0.0:$PORT
+    healthCheckPath: /
+    envVars:
+      - key: TG_TOKEN_GROK
+        sync: false
+      - key: TG_TOKEN_GEMINI
+        sync: false
+      - key: TG_TOKEN_CHATGPT
+        sync: false
+      - key: WEBHOOK_SECRET
+        generateValue: true
+      - key: TRIO_SHARED_SECRET
+        generateValue: true
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: GROQ_API_KEY
+        sync: false
+      - key: OWNER_ID
+        sync: false
+      - key: ALLOWED_CHAT_ID
+        sync: false
